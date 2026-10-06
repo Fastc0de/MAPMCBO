@@ -1,0 +1,15 @@
+# Configuración mínima de SearXNG para la app: hereda la configuración por defecto
+# y activa el formato JSON, que es el que consulta el servidor de la app.
+use_default_settings: true
+
+server:
+  limiter: false
+  public_instance: false
+  image_proxy: false
+
+search:
+  safe_search: 0
+  default_lang: "es"
+  formats:
+    - html
+    - json
