@@ -11,23 +11,19 @@ import type {
 import type { BetaMessageStreamParams } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import type { AgentEvent } from "@/lib/chat/events";
 import type { SourceRef } from "@/lib/geo/types";
-import { summarizeProgress, recommend, type ProgressState } from "@/lib/learning/progress";
-import type { MapContext } from "@/lib/map/state";
 import type { Providers } from "@/server/providers/types";
-import { makeIdGenerator, type ToolContext } from "@/server/tools/context";
 import { TOOL_BY_NAME, TOOLS } from "@/server/tools/registry";
 import { toInputSchema } from "@/server/tools/tool";
-import { SYSTEM_PROMPT } from "./prompt";
+import { contextBlock, createToolContext, executeTool, MAX_ITERATIONS, systemPrompt, type AgentTurnInput } from "./shared";
 
 /**
- * Bucle del agente: LLM → tool call estructurada → backend → resultado → Map Action → UI.
+ * Bucle del agente con Claude: LLM → tool call estructurada → backend → resultado → Map Action → UI.
+ * (Los modelos compatibles con OpenAI usan el bucle equivalente de ./openai.ts.)
  *
  * Es un bucle manual (no el tool runner del SDK) porque cada herramienta emite acciones
  * para el mapa mientras el turno sigue en curso, y porque se mezclan herramientas propias
  * con la búsqueda web de servidor de Claude (que puede pausar el turno con `pause_turn`).
  */
-
-const MAX_ITERATIONS = 16;
 
 export type StreamParams = BetaMessageStreamParams;
 
@@ -48,13 +44,6 @@ export interface AgentOptions {
   webSearch: { enabled: boolean; maxUses: number };
 }
 
-export interface AgentTurnInput {
-  history: BetaMessageParam[];
-  userText: string;
-  mapContext: MapContext;
-  progress: ProgressState;
-}
-
 export function buildTools(options: AgentOptions): BetaToolUnion[] {
   const tools: BetaToolUnion[] = TOOLS.map((t) => ({
     name: t.name,
@@ -72,12 +61,6 @@ export function buildTools(options: AgentOptions): BetaToolUnion[] {
   return tools;
 }
 
-/** Bloque de contexto que acompaña a cada mensaje del usuario (se añade, nunca se edita después). */
-export function contextBlock(mapContext: MapContext, progress: ProgressState): string {
-  const learning = { progress: summarizeProgress(progress), recommendations: recommend(progress) };
-  return `<map_context>\n${JSON.stringify(mapContext)}\n</map_context>\n<learning_progress>\n${JSON.stringify(learning)}\n</learning_progress>`;
-}
-
 function collectCitations(message: BetaMessage, into: Map<string, SourceRef>) {
   for (const block of message.content) {
     if (block.type !== "text" || !block.citations) continue;
@@ -87,8 +70,11 @@ function collectCitations(message: BetaMessage, into: Map<string, SourceRef>) {
   }
 }
 
+/** El servidor reintenta en otro modelo si Opus o Fable rechazan por un falso positivo de seguridad. */
+const supportsFallbacks = (model: string) => /^claude-(opus|fable)/.test(model);
+
 export async function runAgentTurn(
-  input: AgentTurnInput,
+  input: AgentTurnInput<BetaMessageParam>,
   deps: { providers: Providers; callModel: ModelCall; options: AgentOptions },
   emit: (event: AgentEvent) => void,
 ): Promise<BetaMessageParam[]> {
@@ -103,32 +89,26 @@ export async function runAgentTurn(
     },
   ];
 
-  const ctx: ToolContext = {
-    providers: deps.providers,
-    mapContext: input.mapContext,
-    progress: input.progress,
-    emit: (action) => emit({ type: "action", action }),
-    knownPlaces: new Map(),
-    createdFeatures: new Map(),
-    newId: makeIdGenerator(),
-  };
+  const ctx = createToolContext(input, deps.providers, emit);
   const tools = buildTools(deps.options);
+  const system = systemPrompt(deps.options.webSearch.enabled);
   const citations = new Map<string, SourceRef>();
+  const fallbacks = supportsFallbacks(deps.options.model);
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const message = await deps.callModel(
       {
         model: deps.options.model,
         max_tokens: 32000,
-        system: SYSTEM_PROMPT,
+        system,
         tools,
         messages,
+        // drop_block: si se cambia de modelo de Claude a mitad de conversación, el pensamiento anterior se descarta en vez de fallar.
         thinking: { type: "adaptive", block_binding: { prefix_mismatch_behavior: "drop_block" } },
         output_config: { effort: deps.options.effort },
         cache_control: { type: "ephemeral" },
-        // Si el modelo rechaza la petición por un falso positivo de seguridad, el servidor reintenta con otro modelo.
-        fallbacks: "default",
-        betas: ["server-side-fallback-2026-07-01", "thinking-binding-controls-2026-08-01"],
+        ...(fallbacks ? { fallbacks: "default" as const } : {}),
+        betas: [...(fallbacks ? ["server-side-fallback-2026-07-01"] : []), "thinking-binding-controls-2026-08-01"],
       },
       (delta) => emit({ type: "text", delta }),
     );
@@ -159,24 +139,8 @@ export async function runAgentTurn(
 
     const results: BetaToolResultBlockParam[] = await Promise.all(
       toolUses.map(async (use): Promise<BetaToolResultBlockParam> => {
-        const tool = TOOL_BY_NAME.get(use.name);
-        if (!tool) return { type: "tool_result", tool_use_id: use.id, is_error: true, content: `Herramienta desconocida: ${use.name}` };
-        const parsed = tool.schema.safeParse(use.input);
-        if (!parsed.success) {
-          return {
-            type: "tool_result",
-            tool_use_id: use.id,
-            is_error: true,
-            content: `Entrada no válida: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
-          };
-        }
-        emit({ type: "status", text: tool.status });
-        try {
-          const output = await tool.run(parsed.data, ctx);
-          return { type: "tool_result", tool_use_id: use.id, content: JSON.stringify(output) };
-        } catch (e) {
-          return { type: "tool_result", tool_use_id: use.id, is_error: true, content: e instanceof Error ? e.message : String(e) };
-        }
+        const outcome = await executeTool(TOOL_BY_NAME, use.name, use.input, ctx, emit, citations);
+        return { type: "tool_result", tool_use_id: use.id, content: outcome.content, ...(outcome.isError ? { is_error: true } : {}) };
       }),
     );
     messages.push({ role: "user", content: results });

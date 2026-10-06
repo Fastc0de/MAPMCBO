@@ -16,7 +16,7 @@ import {
 /**
  * Implementación con las APIs oficiales de Google Maps Platform:
  * - Places API (New): places:searchText, places:searchNearby, places/{id}
- * - Geocoding API: /maps/api/geocode/json
+ * - Geocoding API v4: geocode/address/{dirección}, geocode/location/{lat},{lng}
  * - Routes API: directions/v2:computeRoutes
  * Todas se llaman desde el servidor con GOOGLE_MAPS_SERVER_API_KEY.
  */
@@ -186,61 +186,70 @@ export function createGooglePlaces(apiKey: string, fetchImpl: FetchLike = fetch)
   };
 }
 
-interface GGeocodeResult {
-  place_id?: string;
-  formatted_address: string;
-  types: string[];
-  partial_match?: boolean;
-  address_components: { long_name: string; types: string[] }[];
-  geometry: {
-    location: { lat: number; lng: number };
-    viewport?: GBounds;
-    bounds?: GBounds;
-  };
+interface GLatLng {
+  latitude: number;
+  longitude: number;
 }
-interface GBounds {
-  northeast: { lat: number; lng: number };
-  southwest: { lat: number; lng: number };
+interface GViewport {
+  low: GLatLng;
+  high: GLatLng;
+}
+interface GGeocodeResult {
+  placeId?: string;
+  location?: GLatLng;
+  formattedAddress?: string;
+  types?: string[];
+  viewport?: GViewport;
+  bounds?: GViewport;
+  addressComponents?: { longText?: string; shortText?: string; types?: string[] }[];
 }
 
-const fromGBounds = (b?: GBounds): Bounds | undefined =>
-  b ? { south: b.southwest.lat, west: b.southwest.lng, north: b.northeast.lat, east: b.northeast.lng } : undefined;
+const fromViewport = (v?: GViewport): Bounds | undefined =>
+  v ? { south: v.low.latitude, west: v.low.longitude, north: v.high.latitude, east: v.high.longitude } : undefined;
+
+/** Geocoding API v4 no filtra por país: se descartan los resultados que Google sitúa fuera de Venezuela. */
+const inVenezuela = (r: GGeocodeResult) => {
+  const country = r.addressComponents?.find((c) => c.types?.includes("country"));
+  return !country || country.shortText === REGION;
+};
 
 export function createGoogleGeocoding(apiKey: string, fetchImpl: FetchLike = fetch): GeocodingProvider {
-  const call = async (params: Record<string, string>) => {
-    const qs = new URLSearchParams({ ...params, key: apiKey, language: LANGUAGE });
-    const res = await fetchImpl(`https://maps.googleapis.com/maps/api/geocode/json?${qs}`);
+  const call = async (path: string, params: Record<string, string>) => {
+    const qs = new URLSearchParams({ ...params, languageCode: LANGUAGE });
+    const res = await fetchImpl(`https://geocode.googleapis.com/v4/geocode/${path}?${qs}`, {
+      headers: { "X-Goog-Api-Key": apiKey },
+    });
     if (!res.ok) throw await readError(res, "Geocoding API");
-    const data = (await res.json()) as { status: string; results: GGeocodeResult[]; error_message?: string };
-    if (data.status === "ZERO_RESULTS") return [];
-    if (data.status !== "OK") {
-      throw new ProviderError(`Geocoding API: ${data.status} ${data.error_message ?? ""}`.trim(), undefined, "Geocoding API");
-    }
-    return data.results.map(
-      (r): GeocodeResult => ({
-        placeId: r.place_id,
-        formattedAddress: r.formatted_address,
-        position: r.geometry.location,
-        types: r.types,
-        viewport: fromGBounds(r.geometry.viewport),
-        bounds: fromGBounds(r.geometry.bounds),
-        components: r.address_components.map((c) => ({ name: c.long_name, types: c.types })),
-        partialMatch: r.partial_match,
-      }),
-    );
+    const data = (await res.json()) as { results?: GGeocodeResult[] };
+    return (data.results ?? [])
+      .filter((r) => r.location && inVenezuela(r))
+      .map(
+        (r): GeocodeResult => ({
+          placeId: r.placeId,
+          formattedAddress: r.formattedAddress ?? "",
+          position: { lat: r.location!.latitude, lng: r.location!.longitude },
+          types: r.types ?? [],
+          viewport: fromViewport(r.viewport),
+          bounds: fromViewport(r.bounds),
+          components: (r.addressComponents ?? []).map((c) => ({ name: c.longText ?? c.shortText ?? "", types: c.types ?? [] })),
+        }),
+      );
   };
 
   return {
     geocode(address, opts) {
-      const params: Record<string, string> = { address, region: "ve", components: "country:VE" };
+      const params: Record<string, string> = { regionCode: REGION };
       if (opts?.bounds) {
         const b = opts.bounds;
-        params.bounds = `${b.south},${b.west}|${b.north},${b.east}`;
+        params["locationBias.rectangle.low.latitude"] = String(b.south);
+        params["locationBias.rectangle.low.longitude"] = String(b.west);
+        params["locationBias.rectangle.high.latitude"] = String(b.north);
+        params["locationBias.rectangle.high.longitude"] = String(b.east);
       }
-      return call(params);
+      return call(`address/${encodeURIComponent(address)}`, params);
     },
     reverseGeocode(position: LatLng) {
-      return call({ latlng: `${position.lat},${position.lng}` });
+      return call(`location/${position.lat},${position.lng}`, {});
     },
   };
 }

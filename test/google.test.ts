@@ -52,22 +52,69 @@ describe("Places API (New)", () => {
   });
 });
 
-describe("Geocoding API", () => {
-  it("limita a Venezuela, sesga a la ciudad y trata ZERO_RESULTS como lista vacía", async () => {
-    const { fetch, calls } = mockFetch([{ status: "ZERO_RESULTS", results: [] }]);
+describe("Geocoding API v4", () => {
+  it("sesga a la ciudad, pide español y descarta resultados fuera de Venezuela", async () => {
+    const { fetch, calls } = mockFetch([
+      {
+        results: [
+          {
+            placeId: "ve",
+            location: { latitude: 10.66, longitude: -71.61 },
+            formattedAddress: "Av. X, Maracaibo, Zulia, Venezuela",
+            types: ["route"],
+            viewport: { low: { latitude: 10.64, longitude: -71.62 }, high: { latitude: 10.68, longitude: -71.6 } },
+            addressComponents: [
+              { longText: "Avenida X", shortText: "Av. X", types: ["route"] },
+              { longText: "Venezuela", shortText: "VE", types: ["country", "political"] },
+            ],
+          },
+          {
+            placeId: "co",
+            location: { latitude: 4.6, longitude: -74.1 },
+            types: ["route"],
+            addressComponents: [{ longText: "Colombia", shortText: "CO", types: ["country", "political"] }],
+          },
+        ],
+      },
+    ]);
     const { geocoding } = createGoogleProviders("KEY", fetch);
     const r = await geocoding.geocode("Avenida X", { bounds: { south: 10.5, west: -71.8, north: 10.8, east: -71.5 } });
-    expect(r).toEqual([]);
+
     const url = new URL(calls[0].url);
-    expect(url.searchParams.get("components")).toBe("country:VE");
-    expect(url.searchParams.get("bounds")).toBe("10.5,-71.8|10.8,-71.5");
-    expect(url.searchParams.get("language")).toBe("es");
+    expect(url.origin + url.pathname).toBe("https://geocode.googleapis.com/v4/geocode/address/Avenida%20X");
+    expect((calls[0].init!.headers as Record<string, string>)["X-Goog-Api-Key"]).toBe("KEY");
+    expect(url.searchParams.get("key")).toBeNull();
+    expect(url.searchParams.get("languageCode")).toBe("es");
+    expect(url.searchParams.get("regionCode")).toBe("VE");
+    expect(url.searchParams.get("locationBias.rectangle.low.latitude")).toBe("10.5");
+    expect(url.searchParams.get("locationBias.rectangle.high.longitude")).toBe("-71.5");
+    expect(r).toEqual([
+      {
+        placeId: "ve",
+        formattedAddress: "Av. X, Maracaibo, Zulia, Venezuela",
+        position: { lat: 10.66, lng: -71.61 },
+        types: ["route"],
+        viewport: { south: 10.64, west: -71.62, north: 10.68, east: -71.6 },
+        bounds: undefined,
+        components: [
+          { name: "Avenida X", types: ["route"] },
+          { name: "Venezuela", types: ["country", "political"] },
+        ],
+      },
+    ]);
   });
 
-  it("otros estados son errores", async () => {
-    const { fetch } = mockFetch([{ status: "REQUEST_DENIED", error_message: "denied", results: [] }]);
+  it("geocodificación inversa por ruta lat,lng; sin resultados es lista vacía", async () => {
+    const { fetch, calls } = mockFetch([{}]);
     const { geocoding } = createGoogleProviders("KEY", fetch);
-    await expect(geocoding.geocode("x")).rejects.toThrow(/REQUEST_DENIED/);
+    expect(await geocoding.reverseGeocode({ lat: 10.64, lng: -71.61 })).toEqual([]);
+    expect(new URL(calls[0].url).pathname).toBe("/v4/geocode/location/10.64,-71.61");
+  });
+
+  it("los errores HTTP son ProviderError", async () => {
+    const { fetch } = mockFetch([new Response(JSON.stringify({ error: { message: "API not enabled" } }), { status: 403 })]);
+    const { geocoding } = createGoogleProviders("KEY", fetch);
+    await expect(geocoding.geocode("x")).rejects.toThrow(/API not enabled/);
   });
 });
 

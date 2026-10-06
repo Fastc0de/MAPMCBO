@@ -10,6 +10,7 @@ import { useIsDesktop } from "@/components/useIsDesktop";
 import { LayerPanel } from "@/components/panels/LayerPanel";
 import { SearchBar } from "@/components/panels/SearchBar";
 import { SelectionPanel } from "@/components/panels/SelectionPanel";
+import { transcriptHistory, type HistoryFormat, type ModelOption } from "@/lib/chat/models";
 import { readEventStream } from "@/lib/chat/stream";
 import { CITIES, DEFAULT_CITY, VENEZUELA } from "@/lib/cities";
 import { distanceMeters } from "@/lib/geo/math";
@@ -20,6 +21,7 @@ import { gradeAnswer, type Quiz, type QuizAnswer, type TargetGeometry } from "@/
 import { isAppAction, type MapAction, type MapMarker, type UIAction } from "@/lib/map/actions";
 import { defaultLayerVisibility, type LayerDefinition } from "@/lib/map/layers";
 import { applyMapAction, buildMapContext, initialMapState, type CameraState, type MapState } from "@/lib/map/state";
+import type { MissingConfig } from "@/lib/setup";
 import { loadJSON, removeKey, saveJSON } from "@/lib/storage";
 
 type InternalAction = MapAction | { type: "CAMERA"; camera: CameraState } | { type: "AREA"; area?: string };
@@ -32,6 +34,17 @@ function reducer(state: MapState, action: InternalAction): MapState {
 
 const PROGRESS_KEY = "mapmcbo.progress.v1";
 const CHAT_KEY = "mapmcbo.chat.v1";
+const MODEL_KEY = "mapmcbo.model.v1";
+
+interface SavedChat {
+  messages: ChatMessage[];
+  history: unknown[];
+  historyFormat?: HistoryFormat;
+  conversationId?: string;
+}
+
+const newConversationId = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `c${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
 
 type MobilePanel = "chat" | "aprender" | "capas" | null;
 
@@ -41,10 +54,11 @@ const msgId = () => `m${Date.now().toString(36)}${++msgSeq}`;
 interface Props {
   browserKey: string;
   mapId: string;
-  missing: string[];
+  missing: MissingConfig[];
+  models: ModelOption[];
 }
 
-export function MapApp({ browserKey, mapId, missing }: Props) {
+export function MapApp({ browserKey, mapId, missing, models }: Props) {
   const [state, dispatch] = useReducer(reducer, undefined, () =>
     initialMapState({ center: DEFAULT_CITY.center, zoom: DEFAULT_CITY.zoom }),
   );
@@ -61,6 +75,9 @@ export function MapApp({ browserKey, mapId, missing }: Props) {
   const [progress, setProgress] = useState<ProgressState>({});
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [history, setHistory] = useState<unknown[]>([]);
+  const [historyFormat, setHistoryFormat] = useState<HistoryFormat | undefined>(undefined);
+  const [conversationId, setConversationId] = useState<string>("");
+  const [modelId, setModelId] = useState<string>(models[0]?.id ?? "");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
@@ -74,28 +91,40 @@ export function MapApp({ browserKey, mapId, missing }: Props) {
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>(null);
   const isDesktop = useIsDesktop();
 
-  const serverMapsReady = !missing.some((m) => m.startsWith("GOOGLE_MAPS_SERVER"));
-  const chatDisabledReason = missing.length
-    ? `Falta configurar: ${missing.filter((m) => !m.startsWith("GOOGLE_MAPS_BROWSER")).join(", ") || "nada para el chat"}.`
-    : undefined;
+  const serverMapsReady = !missing.some((m) => m.part === "google");
+  const chatMissing = missing.filter((m) => m.part !== "map");
+  const chatDisabledReason = chatMissing.length ? `Falta configurar: ${chatMissing.map((m) => m.text).join(", ")}.` : undefined;
+  const selectedModel = models.find((m) => m.id === modelId) ?? models[0];
 
   /* ---------- Persistencia local (progreso y conversación) ---------- */
   useEffect(() => {
     // Se lee localStorage tras montar para no romper la hidratación.
     setProgress(loadJSON<ProgressState>(PROGRESS_KEY, {}));
-    const saved = loadJSON<{ messages: ChatMessage[]; history: unknown[] } | null>(CHAT_KEY, null);
+    const saved = loadJSON<SavedChat | null>(CHAT_KEY, null);
     if (saved) {
       setMessages(saved.messages ?? []);
       setHistory(saved.history ?? []);
+      // Las conversaciones de la primera versión solo podían venir de Claude.
+      setHistoryFormat(saved.historyFormat ?? (saved.history?.length ? "anthropic" : undefined));
     }
-  }, []);
+    setConversationId(saved?.conversationId ?? newConversationId());
+    const savedModel = loadJSON<string | null>(MODEL_KEY, null);
+    if (savedModel && models.some((m) => m.id === savedModel)) setModelId(savedModel);
+  }, [models]);
   useEffect(() => {
     saveJSON(PROGRESS_KEY, progress);
   }, [progress]);
   useEffect(() => {
     if (busy) return;
-    if (!saveJSON(CHAT_KEY, { messages, history })) saveJSON(CHAT_KEY, { messages, history: [] });
-  }, [messages, history, busy]);
+    const chat: SavedChat = { messages, history, historyFormat, conversationId };
+    // Si el historial completo no cabe en localStorage, se guarda solo lo visible (el modelo lo recibe como texto).
+    if (!saveJSON(CHAT_KEY, chat)) saveJSON(CHAT_KEY, { ...chat, history: [], historyFormat: undefined });
+  }, [messages, history, historyFormat, conversationId, busy]);
+
+  const selectModel = (id: string) => {
+    setModelId(id);
+    saveJSON(MODEL_KEY, id);
+  };
 
   /* ---------- Acciones que llegan del agente ---------- */
   const startQuiz = useCallback((q: Quiz) => {
@@ -140,13 +169,22 @@ export function MapApp({ browserKey, mapId, missing }: Props) {
       setMobilePanel((p) => p ?? "chat");
       const patch = (fn: (m: ChatMessage) => ChatMessage) =>
         setMessages((list) => list.map((m) => (m.id === assistantId ? fn(m) : m)));
+      // Al cambiar a un proveedor con otro formato de historial, el modelo nuevo recibe la conversación en texto.
+      const format = selectedModel?.format;
+      const sameFormat = history.length > 0 && historyFormat === format;
+      const sentHistory = sameFormat
+        ? history
+        : transcriptHistory(messages.filter((m): m is ChatMessage & { role: "user" | "assistant" } => m.role !== "note"));
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             message: text,
-            history,
+            model: selectedModel?.id,
+            history: sentHistory,
+            historyFormat: format,
+            conversationId,
             mapContext: buildMapContext(stateRef.current),
             progress,
           }),
@@ -176,6 +214,7 @@ export function MapApp({ browserKey, mapId, missing }: Props) {
               break;
             case "done":
               setHistory(event.history);
+              setHistoryFormat(event.format);
               break;
           }
         });
@@ -186,12 +225,14 @@ export function MapApp({ browserKey, mapId, missing }: Props) {
         setStatus(null);
       }
     },
-    [history, progress, applyUIAction],
+    [history, historyFormat, messages, selectedModel, conversationId, progress, applyUIAction],
   );
 
   const resetChat = () => {
     setMessages([]);
     setHistory([]);
+    setHistoryFormat(undefined);
+    setConversationId(newConversationId());
     removeKey(CHAT_KEY);
   };
 
@@ -426,6 +467,9 @@ export function MapApp({ browserKey, mapId, missing }: Props) {
       onReset={resetChat}
       draft={draft}
       onDraftConsumed={() => setDraft(null)}
+      models={models}
+      modelId={selectedModel?.id}
+      onSelectModel={selectModel}
     />
   );
 
@@ -462,7 +506,7 @@ export function MapApp({ browserKey, mapId, missing }: Props) {
 
       {missing.length > 0 && (
         <div className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
-          Falta configuración en el servidor: {missing.join(" · ")}. Mira el README para saber dónde ponerla.
+          Falta configuración en el servidor: {missing.map((m) => m.text).join(" · ")}. Mira el README para saber dónde ponerla.
         </div>
       )}
 

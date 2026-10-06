@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { ModelOption } from "@/lib/chat/models";
 import type { SourceRef } from "@/lib/geo/types";
 import { RichText } from "@/components/ui/RichText";
 
@@ -31,9 +32,24 @@ interface Props {
   /** Texto que otro panel pide poner en el cuadro de mensaje. */
   draft: string | null;
   onDraftConsumed: () => void;
+  models: ModelOption[];
+  modelId?: string;
+  onSelectModel: (id: string) => void;
 }
 
-export function ChatPanel({ messages, busy, status, disabledReason, onSend, onReset, draft, onDraftConsumed }: Props) {
+export function ChatPanel({
+  messages,
+  busy,
+  status,
+  disabledReason,
+  onSend,
+  onReset,
+  draft,
+  onDraftConsumed,
+  models,
+  modelId,
+  onSelectModel,
+}: Props) {
   const [text, setText] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -72,6 +88,34 @@ export function ChatPanel({ messages, busy, status, disabledReason, onSend, onRe
           Nueva conversación
         </button>
       </header>
+
+      {models.length > 0 && (
+        <div className="flex items-center gap-2 border-b border-border px-4 py-1.5 text-xs">
+          <label htmlFor="chat-model" className="text-muted">
+            Modelo
+          </label>
+          <select
+            id="chat-model"
+            value={modelId}
+            onChange={(e) => onSelectModel(e.target.value)}
+            disabled={busy}
+            className="min-w-0 flex-1 rounded-md border border-border bg-transparent px-1.5 py-1"
+          >
+            {[...new Set(models.map((m) => m.providerLabel))].map((provider) => (
+              <optgroup key={provider} label={provider}>
+                {models
+                  .filter((m) => m.providerLabel === provider)
+                  .map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                      {m.webSearch ? "" : " (sin búsqueda web)"}
+                    </option>
+                  ))}
+              </optgroup>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div ref={listRef} className="scroll-thin min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3 text-sm">
         {messages.length === 0 && (

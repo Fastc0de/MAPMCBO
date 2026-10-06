@@ -3,7 +3,7 @@
 Un Google Maps con tutor personal de geografía y agente de investigación local, para aprender a orientarse en Venezuela empezando por Maracaibo.
 
 - **Mapa grande** de Google Maps centrado en Maracaibo, con toda Venezuela disponible (selector de ciudad y botón «Venezuela»).
-- **Chatbot al lado** (Claude) que controla el mapa: busca lugares, los marca, traza rutas, resalta avenidas y sectores, explica dónde está cada cosa y te hace preguntas sobre el propio mapa.
+- **Chatbot al lado** que controla el mapa (eliges el modelo: Gemini, OpenCode Go, Claude u otro compatible con OpenAI): busca lugares, los marca, traza rutas, resalta avenidas y sectores, explica dónde está cada cosa y te hace preguntas sobre el propio mapa.
 - **Modo aprendizaje** con el programa completo (de «¿qué es una calle?» al dominio de la ciudad), glosario, lecciones sobre el mapa, quizzes y progreso guardado en tu navegador.
 - **Capas**: lugares del asistente, avenidas resaltadas, sectores, rutas, transporte reconstruido desde la web, y capas de Google Places (restaurantes, centros comerciales, hospitales, universidades, farmacias, supermercados, lugares históricos, parques), transporte y tráfico de Google.
 
@@ -29,37 +29,42 @@ Sin claves la app arranca igual: verás el programa de aprendizaje y el glosario
 
 ## Claves de API
 
-Las claves van **solo** en `.env.local` (o en las variables de entorno de tu hosting). Ese archivo está en `.gitignore`: no se sube nunca al repositorio.
+Las claves van **solo** en `.env.local` (o en las variables de entorno de tu hosting). Ese archivo está en `.gitignore`: no se sube nunca al repositorio. `.env.example` tiene todas las variables comentadas.
 
-| Variable | Obligatoria | Para qué |
+Lo mínimo para usarlo todo: **una clave de Google Maps** y **una clave de algún modelo** para el chat.
+
+### Google Maps
+
+| Variable | Para qué |
+|---|---|
+| `GOOGLE_MAPS_API_KEY` | Una sola clave para todo: el mapa (Maps JavaScript API) y las búsquedas desde el servidor (Places API (New), Geocoding API v4, Routes API) |
+| `GOOGLE_MAPS_BROWSER_API_KEY` / `GOOGLE_MAPS_SERVER_API_KEY` | Opcional: claves separadas para el navegador y el servidor; tienen prioridad sobre la anterior |
+| `GOOGLE_MAPS_MAP_ID` | Opcional: tu Map ID; si no hay, se usa `DEMO_MAP_ID` |
+
+**Para empezar gratis**, la [Maps Demo Key](https://mapsplatform.google.com/maps-demo-key/) sirve: no pide tarjeta y cubre todo lo que usa la app (mapa, Places API (New), Geocoding API v4 y Routes). Es para prototipos: tiene un límite diario (al llegar se pausa hasta el día siguiente, sin cargos) y no da fotos ni reseñas de usuarios. Ponla en `GOOGLE_MAPS_API_KEY`.
+
+**Para producción**, en [Google Cloud Console](https://console.cloud.google.com/) con facturación activa: habilita Maps JavaScript API, Places API (New), Geocoding API y Routes API, y crea dos claves. La del navegador (`GOOGLE_MAPS_BROWSER_API_KEY`) se restringe por *Sitios web* (`http://localhost:3000/*` y tu dominio) y a *Maps JavaScript API*; es visible en el navegador por diseño y la restricción es lo que la protege. La del servidor (`GOOGLE_MAPS_SERVER_API_KEY`) se restringe a Places, Geocoding y Routes, y nunca sale del servidor.
+
+### Modelos para el chat
+
+Pon una o varias claves; en el chat aparece un selector con los modelos disponibles y puedes cambiar a mitad de conversación (si cambias de proveedor, el modelo nuevo recibe la conversación en texto).
+
+| Variable | Proveedor | Notas |
 |---|---|---|
-| `GOOGLE_MAPS_BROWSER_API_KEY` | Sí | Dibujar el mapa en el navegador (Maps JavaScript API) |
-| `GOOGLE_MAPS_SERVER_API_KEY` | Sí | Búsquedas y rutas desde el servidor: Places API (New), Geocoding API, Routes API |
-| `ANTHROPIC_API_KEY` | Sí, para el chat | El chatbot (Claude) |
-| `GOOGLE_MAPS_MAP_ID` | No | Tu Map ID propio; si no hay, se usa `DEMO_MAP_ID` |
-| `ANTHROPIC_MODEL` | No | Modelo de Claude (por defecto `claude-opus-5-5`) |
-| `ANTHROPIC_EFFORT` | No | `low`, `medium` (por defecto), `high`, `xhigh` o `max` |
-| `WEB_SEARCH_ENABLED` | No | `false` para desactivar la búsqueda web del chatbot |
-| `WEB_SEARCH_MAX_USES` | No | Búsquedas web máximas por mensaje (por defecto 5) |
+| `GEMINI_API_KEY` | Gemini, de Google | Se saca en [Google AI Studio](https://aistudio.google.com/apikey); tiene nivel gratuito. Modelos en `GEMINI_MODELS` (por defecto `gemini-3.8-flash`) |
+| `OPENCODE_GO_API_KEY` | [OpenCode Go](https://opencode.ai/docs/go/) | Suscripción de OpenCode. Solo modelos de `/chat/completions`, en `OPENCODE_GO_MODELS` (por defecto `kimi-k3,glm-5.3,deepseek-v4-pro`). OpenCode dice que Go está pensado para agentes de programación y vigila el tráfico, así que úsalo sabiendo eso |
+| `ANTHROPIC_API_KEY` | Claude, de Anthropic | API de pago en [console.anthropic.com](https://console.anthropic.com/); la suscripción de claude.ai no da acceso a la API. Modelos en `ANTHROPIC_MODELS` (por defecto `claude-opus-5-5,claude-sonnet-5-5`); `ANTHROPIC_EFFORT` de `low` a `max` |
+| `OPENAI_COMPATIBLE_BASE_URL` + `OPENAI_COMPATIBLE_MODELS` | Cualquiera compatible con OpenAI | OpenRouter, Ollama en tu PC (`http://localhost:11434/v1`), etc. Opcionales: `OPENAI_COMPATIBLE_API_KEY` y `OPENAI_COMPATIBLE_NAME` |
+| `LLM_DEFAULT_MODEL` | | Qué modelo sale elegido por defecto, como `proveedor:modelo` (p. ej. `gemini:gemini-3.8-flash`) |
 
-### Google Maps Platform
+### Búsqueda web
 
-1. Entra en [Google Cloud Console](https://console.cloud.google.com/), crea un proyecto y activa la facturación (Google da un crédito mensual gratuito).
-2. En **APIs y servicios → Biblioteca**, habilita: **Maps JavaScript API**, **Places API (New)**, **Geocoding API** y **Routes API**.
-3. En **APIs y servicios → Credenciales**, crea **dos** claves:
-   - **Clave del navegador** → `GOOGLE_MAPS_BROWSER_API_KEY`. Restricción de aplicación: *Sitios web*, con `http://localhost:3000/*` y el dominio donde la publiques. Restricción de API: solo *Maps JavaScript API*. Esta clave es visible en el navegador por diseño; la restricción por dominio es lo que la protege.
-   - **Clave del servidor** → `GOOGLE_MAPS_SERVER_API_KEY`. Restricción de API: *Places API (New)*, *Geocoding API* y *Routes API*. Nunca sale del servidor.
-4. (Opcional) En **Google Maps Platform → Gestión de mapas**, crea un Map ID de tipo JavaScript y ponlo en `GOOGLE_MAPS_MAP_ID`.
-
-### Anthropic (chatbot)
-
-1. Entra en [console.anthropic.com](https://console.anthropic.com/), ve a **API Keys** y crea una clave → `ANTHROPIC_API_KEY`.
-2. La búsqueda web del chatbot (rutas de transporte, páginas de negocios, noticias) puede tener que activarse para tu organización en la consola. Si el chat da un error de permisos al buscar en la web, actívala allí o pon `WEB_SEARCH_ENABLED=false`.
+La usa el chatbot para transporte público, negocios pequeños, noticias y eventos. Claude trae la suya (puede que tengas que activarla para tu organización en la consola de Anthropic). Para los demás modelos hace falta `TAVILY_API_KEY` ([Tavily](https://tavily.com), con plan gratuito); sin ella el selector marca esos modelos como «sin búsqueda web» y el tutor avisa cuando le haría falta buscar. `WEB_SEARCH_ENABLED=false` la apaga para todos.
 
 ## Cómo probarlo
 
 ```bash
-npm test           # tests con Google y Claude simulados (no gastan cuota ni necesitan claves)
+npm test           # tests con Google y los modelos simulados (no gastan cuota ni necesitan claves)
 npm run lint
 npm run typecheck
 npm run build
@@ -79,7 +84,7 @@ También puedes hacer clic en el mapa (te dice qué hay ahí), buscar con la bar
 ## Arquitectura
 
 ```
-Navegador (React)  ──►  /api/chat  ──►  Agente (Claude)  ──►  Herramientas  ──►  Google Maps Platform / búsqueda web
+Navegador (React)  ──►  /api/chat  ──►  Agente (modelo elegido)  ──►  Herramientas  ──►  Google Maps Platform / búsqueda web
       ▲                                                            │
       └──────────── MapActions (JSON, en streaming) ◄──────────────┘
 ```
@@ -94,7 +99,8 @@ El modelo nunca toca la interfaz. Llama a herramientas con entradas validadas (Z
 | `src/lib/learning` | Programa (niveles I–IX y glosario), lecciones, quizzes y progreso |
 | `src/server/providers` | Clientes de Google (Places API (New), Geocoding, Routes) detrás de interfaces propias |
 | `src/server/tools` | Las herramientas del agente (`search_places`, `calculate_route`, `search_transit_information`, `highlight_road`, `create_quiz`…) |
-| `src/server/agent` | Bucle del agente y prompt del tutor |
+| `src/server/agent` | Bucle del agente (Claude y compatibles con OpenAI) y prompt del tutor |
+| `src/server/llm` | Catálogo de proveedores y modelos según las claves configuradas |
 
 Los proveedores están detrás de interfaces (`src/server/providers/types.ts`), así que cambiar de proveedor de mapas o de búsqueda no toca la interfaz ni las herramientas.
 
@@ -107,7 +113,8 @@ Los proveedores están detrás de interfaces (`src/server/providers/types.ts`), 
 - **Datos de transporte público**: Google tiene poca cobertura de autobuses y carritos por puesto en Venezuela. Cuando no hay datos, el agente reconstruye la ruta desde fuentes web, la marca como `WEB_DATA` y solo dibuja las paradas que Google pudo ubicar; las demás se listan como no verificadas.
 - **Resaltar una avenida** traza la vía con Routes API entre dos extremos que propone el tutor; es una aproximación al trazado real y se indica como tal. Los **sectores** se muestran con el rectángulo que devuelve Geocoding, no con su contorno exacto.
 - El progreso vive en el navegador: si cambias de dispositivo, empieza de cero. Una base de datos con cuenta de usuario sería el siguiente paso.
-- No se ha probado todavía contra las APIs reales (este repositorio no tiene claves); los tests usan Google y Claude simulados.
+- Google Maps está probado con una Maps Demo Key real (mapa, buscador, clic en el mapa, capas). Los modelos no se han probado con claves reales: los tests usan modelos simulados y un servidor falso compatible con OpenAI.
+- Los modelos de OpenCode Go que usan `/messages` o `/responses` (MiniMax, Qwen, Grok, GPT) no están soportados todavía.
 
 ## Sobre ROSE
 

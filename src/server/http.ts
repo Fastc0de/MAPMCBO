@@ -3,14 +3,17 @@ import "server-only";
 import { z } from "zod";
 import { getConfig } from "./config";
 import { createGoogleProviders } from "./providers/google";
+import { createTavilySearch } from "./providers/tavily";
 import { ProviderError, type Providers } from "./providers/types";
 
 export class ConfigError extends Error {}
 
 export function getProviders(): Providers {
-  const key = getConfig().googleServerKey;
-  if (!key) throw new ConfigError("Falta GOOGLE_MAPS_SERVER_API_KEY en el servidor.");
-  return createGoogleProviders(key);
+  const config = getConfig();
+  if (!config.googleServerKey) throw new ConfigError("Falta GOOGLE_MAPS_API_KEY en el servidor.");
+  const providers = createGoogleProviders(config.googleServerKey);
+  if (config.tavilyKey) providers.web = createTavilySearch(config.tavilyKey);
+  return providers;
 }
 
 export const latLngSchema = z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) });

@@ -46,10 +46,23 @@ export interface RoutesProvider {
   }): Promise<RouteResult | null>;
 }
 
+export interface WebSearchResult {
+  title: string;
+  url: string;
+  snippet: string;
+  publishedDate?: string;
+}
+
+export interface WebSearchProvider {
+  search(query: string, opts?: { maxResults?: number; recent?: boolean }): Promise<WebSearchResult[]>;
+}
+
 export interface Providers {
   places: PlacesProvider;
   geocoding: GeocodingProvider;
   routes: RoutesProvider;
+  /** Búsqueda web propia (Tavily) para los modelos que no traen una. */
+  web?: WebSearchProvider;
 }
 
 export class ProviderError extends Error {
