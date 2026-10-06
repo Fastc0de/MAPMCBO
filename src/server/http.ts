@@ -3,7 +3,8 @@ import "server-only";
 import { z } from "zod";
 import { getConfig } from "./config";
 import { createGoogleProviders } from "./providers/google";
-import { createTavilySearch } from "./providers/tavily";
+import { createPageReader } from "./providers/pages";
+import { createSearxngSearch } from "./providers/searxng";
 import { ProviderError, type Providers } from "./providers/types";
 
 export class ConfigError extends Error {}
@@ -12,7 +13,10 @@ export function getProviders(): Providers {
   const config = getConfig();
   if (!config.googleServerKey) throw new ConfigError("Falta GOOGLE_MAPS_API_KEY en el servidor.");
   const providers = createGoogleProviders(config.googleServerKey);
-  if (config.tavilyKey) providers.web = createTavilySearch(config.tavilyKey);
+  if (config.searxngUrl) {
+    providers.web = createSearxngSearch(config.searxngUrl);
+    providers.pages = createPageReader();
+  }
   return providers;
 }
 

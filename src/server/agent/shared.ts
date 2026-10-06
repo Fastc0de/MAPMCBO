@@ -46,6 +46,7 @@ export function createToolContext(
     emit: (action) => emit({ type: "action", action }),
     knownPlaces: new Map(),
     createdFeatures: new Map(),
+    webUrls: new Set(),
     newId: makeIdGenerator(),
   };
 }
@@ -89,7 +90,8 @@ export async function executeTool(
 /** Las páginas que devuelve la búsqueda web propia se muestran como fuentes bajo la respuesta. */
 function collectWebSources(output: unknown, into: Map<string, SourceRef>) {
   if (!output || typeof output !== "object") return;
-  const o = output as { source?: string; results?: { title?: string; url?: string }[] };
-  if (o.source !== "WEB_DATA" || !Array.isArray(o.results)) return;
-  for (const r of o.results) if (r.url) into.set(r.url, { title: r.title ?? r.url, url: r.url });
+  const o = output as { source?: string; url?: string; title?: string; results?: { title?: string; url?: string }[] };
+  if (o.source !== "WEB_DATA") return;
+  if (o.url) into.set(o.url, { title: o.title ?? o.url, url: o.url });
+  for (const r of o.results ?? []) if (r.url) into.set(r.url, { title: r.title ?? r.url, url: r.url });
 }

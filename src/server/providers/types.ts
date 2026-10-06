@@ -57,12 +57,25 @@ export interface WebSearchProvider {
   search(query: string, opts?: { maxResults?: number; recent?: boolean }): Promise<WebSearchResult[]>;
 }
 
+export interface WebPage {
+  url: string;
+  title: string;
+  text: string;
+  truncated: boolean;
+}
+
+export interface PageReader {
+  read(url: string): Promise<WebPage>;
+}
+
 export interface Providers {
   places: PlacesProvider;
   geocoding: GeocodingProvider;
   routes: RoutesProvider;
-  /** Búsqueda web propia (Tavily) para los modelos que no traen una. */
+  /** Búsqueda web propia (SearXNG) para los modelos que no traen una. */
   web?: WebSearchProvider;
+  /** Lee el texto de las páginas que encontró la búsqueda web. */
+  pages?: PageReader;
 }
 
 export class ProviderError extends Error {

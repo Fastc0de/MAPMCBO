@@ -5,7 +5,7 @@ import type { SourceRef } from "@/lib/geo/types";
 import type { Providers } from "@/server/providers/types";
 import { TOOLS } from "@/server/tools/registry";
 import { toInputSchema, type AgentTool } from "@/server/tools/tool";
-import { webSearch } from "@/server/tools/web";
+import { readWebPage, webSearch } from "@/server/tools/web";
 import { contextBlock, createToolContext, executeTool, MAX_ITERATIONS, systemPrompt, type AgentTurnInput } from "./shared";
 
 /**
@@ -162,7 +162,7 @@ export function toFunctionParameters(tool: AgentTool): Record<string, unknown> {
 }
 
 export function openAITools(webSearchEnabled: boolean): AgentTool[] {
-  return webSearchEnabled ? [...TOOLS, webSearch as unknown as AgentTool] : TOOLS;
+  return webSearchEnabled ? [...TOOLS, webSearch as unknown as AgentTool, readWebPage as unknown as AgentTool] : TOOLS;
 }
 
 export async function runOpenAICompatibleTurn(

@@ -18,6 +18,8 @@ export interface ToolContext {
   knownPlaces: Map<string, PlaceSummary>;
   /** ids de elementos dibujados en este turno (además de los del MapContext). */
   createdFeatures: Map<string, { kind: "road" | "area" | "marker"; name: string }>;
+  /** URLs que devolvió web_search en este turno: las únicas que read_web_page puede abrir. */
+  webUrls: Set<string>;
   newId: (prefix: string) => string;
 }
 

@@ -8,7 +8,7 @@ import type { HistoryFormat, ModelOption } from "@/lib/chat/models";
  *
  * - Claude (Anthropic): API de Messages con búsqueda web de servidor.
  * - OpenCode Go, Gemini y uno personalizado: APIs compatibles con OpenAI (chat/completions).
- *   Para buscar en la web usan Tavily si hay TAVILY_API_KEY.
+ *   Para buscar en la web usan un SearXNG propio si hay SEARXNG_URL.
  */
 
 export interface LlmProvider {
@@ -104,10 +104,10 @@ export function configuredProviders(env: Env = process.env): LlmProvider[] {
   return providers;
 }
 
-/** ¿Hay búsqueda web para este formato? Claude usa la suya; los demás, Tavily. */
+/** ¿Hay búsqueda web para este formato? Claude usa la suya; los demás, SearXNG. */
 export function webSearchAvailable(format: HistoryFormat, env: Env = process.env): boolean {
   if (env.WEB_SEARCH_ENABLED === "false") return false;
-  return format === "anthropic" || Boolean(env.TAVILY_API_KEY);
+  return format === "anthropic" || Boolean(env.SEARXNG_URL);
 }
 
 export function availableModels(env: Env = process.env): ModelOption[] {

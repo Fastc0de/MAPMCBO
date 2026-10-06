@@ -59,7 +59,13 @@ Pon una o varias claves; en el chat aparece un selector con los modelos disponib
 
 ### Búsqueda web
 
-La usa el chatbot para transporte público, negocios pequeños, noticias y eventos. Claude trae la suya (puede que tengas que activarla para tu organización en la consola de Anthropic). Para los demás modelos hace falta `TAVILY_API_KEY` ([Tavily](https://tavily.com), con plan gratuito); sin ella el selector marca esos modelos como «sin búsqueda web» y el tutor avisa cuando le haría falta buscar. `WEB_SEARCH_ENABLED=false` la apaga para todos.
+La usa el chatbot para transporte público, negocios pequeños, noticias y eventos. Claude trae la suya (puede que tengas que activarla para tu organización en la consola de Anthropic). Los demás modelos usan un [SearXNG](https://docs.searxng.org/) propio, un metabuscador que corre en tu PC con Docker y no necesita claves:
+
+```bash
+docker compose up -d          # arranca SearXNG en http://localhost:8888 (docker-compose.yml + searxng/settings.yml)
+```
+
+y en `.env.local`: `SEARXNG_URL=http://localhost:8888`. La configuración del repo ya activa el formato JSON, que es el que consulta la app. Con SearXNG el tutor tiene dos herramientas: `web_search` (resultados con fragmento) y `read_web_page`, que lee el texto de una página de esos resultados (solo páginas públicas que salieron en la búsqueda del mismo turno). Sin `SEARXNG_URL`, el selector marca esos modelos como «sin búsqueda web» y el tutor avisa cuando le haría falta buscar. `WEB_SEARCH_ENABLED=false` la apaga para todos.
 
 ## Cómo probarlo
 
@@ -113,7 +119,7 @@ Los proveedores están detrás de interfaces (`src/server/providers/types.ts`), 
 - **Datos de transporte público**: Google tiene poca cobertura de autobuses y carritos por puesto en Venezuela. Cuando no hay datos, el agente reconstruye la ruta desde fuentes web, la marca como `WEB_DATA` y solo dibuja las paradas que Google pudo ubicar; las demás se listan como no verificadas.
 - **Resaltar una avenida** traza la vía con Routes API entre dos extremos que propone el tutor; es una aproximación al trazado real y se indica como tal. Los **sectores** se muestran con el rectángulo que devuelve Geocoding, no con su contorno exacto.
 - El progreso vive en el navegador: si cambias de dispositivo, empieza de cero. Una base de datos con cuenta de usuario sería el siguiente paso.
-- Google Maps está probado con una Maps Demo Key real (mapa, buscador, clic en el mapa, capas). Los modelos no se han probado con claves reales: los tests usan modelos simulados y un servidor falso compatible con OpenAI.
+- Google Maps está probado con una Maps Demo Key real (mapa, buscador, clic en el mapa, capas), y SearXNG arrancado con el `docker-compose.yml` del repo. Los modelos no se han probado con claves reales (el entorno donde se construyó no llega a opencode.ai): los tests usan modelos simulados y un servidor falso compatible con OpenAI.
 - Los modelos de OpenCode Go que usan `/messages` o `/responses` (MiniMax, Qwen, Grok, GPT) no están soportados todavía.
 
 ## Sobre ROSE

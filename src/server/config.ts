@@ -15,7 +15,7 @@ export interface ServerConfig {
   chatConfigured: boolean;
   anthropicEffort: "low" | "medium" | "high" | "xhigh" | "max";
   webSearchMaxUses: number;
-  tavilyKey?: string;
+  searxngUrl?: string;
 }
 
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -32,7 +32,7 @@ export function getConfig(): ServerConfig {
     chatConfigured: availableModels().length > 0,
     anthropicEffort: effort && EFFORTS.includes(effort) ? effort : "medium",
     webSearchMaxUses: Number(process.env.WEB_SEARCH_MAX_USES) || 5,
-    tavilyKey: process.env.TAVILY_API_KEY || undefined,
+    searxngUrl: process.env.WEB_SEARCH_ENABLED === "false" ? undefined : process.env.SEARXNG_URL || undefined,
   };
 }
 

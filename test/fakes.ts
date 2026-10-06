@@ -96,6 +96,7 @@ export function toolContext(providers: Providers, mapContext = mapContextAtMarac
     emit: (a) => actions.push(a),
     knownPlaces: new Map(),
     createdFeatures: new Map(),
+    webUrls: new Set(),
     newId: makeIdGenerator(1),
     actions,
   };
