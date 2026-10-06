@@ -35,6 +35,8 @@ interface Props {
   models: ModelOption[];
   modelId?: string;
   onSelectModel: (id: string) => void;
+  /** Abre «Ajustes» para poner claves o elegir qué modelos aparecen. */
+  onOpenSettings: () => void;
 }
 
 export function ChatPanel({
@@ -49,6 +51,7 @@ export function ChatPanel({
   models,
   modelId,
   onSelectModel,
+  onOpenSettings,
 }: Props) {
   const [text, setText] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
@@ -89,11 +92,11 @@ export function ChatPanel({
         </button>
       </header>
 
-      {models.length > 0 && (
-        <div className="flex items-center gap-2 border-b border-border px-4 py-1.5 text-xs">
-          <label htmlFor="chat-model" className="text-muted">
-            Modelo
-          </label>
+      <div className="flex items-center gap-2 border-b border-border px-4 py-1.5 text-xs">
+        <label htmlFor="chat-model" className="text-muted">
+          Modelo
+        </label>
+        {models.length > 0 ? (
           <select
             id="chat-model"
             value={modelId}
@@ -114,8 +117,18 @@ export function ChatPanel({
               </optgroup>
             ))}
           </select>
-        </div>
-      )}
+        ) : (
+          <span className="min-w-0 flex-1 text-muted">Ninguno configurado todavía.</span>
+        )}
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          title="Poner claves y elegir qué modelos aparecen aquí"
+          className={`shrink-0 rounded-md border px-2 py-1 ${models.length > 0 ? "border-border text-muted hover:bg-black/5 dark:hover:bg-white/5" : "border-accent font-semibold text-accent"}`}
+        >
+          {models.length > 0 ? "Más modelos" : "Configurar"}
+        </button>
+      </div>
 
       <div ref={listRef} className="scroll-thin min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3 text-sm">
         {messages.length === 0 && (

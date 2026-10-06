@@ -4,17 +4,21 @@ import { z } from "zod";
 import { getConfig } from "./config";
 import { createGoogleProviders } from "./providers/google";
 import { createPageReader } from "./providers/pages";
-import { createSearxngSearch } from "./providers/searxng";
+import { createSearxngSearch, withAutostart } from "./providers/searxng";
 import { ProviderError, type Providers } from "./providers/types";
+import { autostartEnabled, isLocalUrl, searxngManager } from "./searxng/manager";
 
 export class ConfigError extends Error {}
 
 export function getProviders(): Providers {
   const config = getConfig();
-  if (!config.googleServerKey) throw new ConfigError("Falta GOOGLE_MAPS_API_KEY en el servidor.");
+  if (!config.googleServerKey) throw new ConfigError("Falta la clave de Google Maps. Ponla en «Ajustes».");
   const providers = createGoogleProviders(config.googleServerKey);
   if (config.searxngUrl) {
-    providers.web = createSearxngSearch(config.searxngUrl);
+    const search = createSearxngSearch(config.searxngUrl);
+    // SearXNG local apagado: se arranca con Docker y se espera un poco antes de rendirse.
+    providers.web =
+      autostartEnabled() && isLocalUrl(config.searxngUrl) ? withAutostart(search, () => searxngManager().ensure(process.env, 45_000)) : search;
     providers.pages = createPageReader();
   }
   return providers;

@@ -21,15 +21,20 @@ Requisitos: Node.js 20.9 o superior.
 
 ```bash
 npm install
-cp .env.example .env.local   # y rellena las claves (ver abajo)
 npm run dev                  # http://localhost:3000
 ```
+
+Abre http://localhost:3000, pulsa **Ajustes** (arriba a la derecha) y pega tus claves: se guardan en `.env.local` y se usan al momento, sin reiniciar. Si tienes [Docker](https://docs.docker.com/get-started/get-docker/) instalado y abierto, la app arranca sola el buscador web (SearXNG).
 
 Sin claves la app arranca igual: verás el programa de aprendizaje y el glosario, y un aviso arriba con lo que falta configurar.
 
 ## Claves de API
 
-Las claves van **solo** en `.env.local` (o en las variables de entorno de tu hosting). Ese archivo está en `.gitignore`: no se sube nunca al repositorio. `.env.example` tiene todas las variables comentadas.
+Las claves van **solo** en `.env.local` (o en las variables de entorno de tu hosting). Ese archivo está en `.gitignore`: no se sube nunca al repositorio.
+
+**Desde la app**: el botón **Ajustes** tiene un apartado por proveedor (Google Maps, Gemini, OpenCode Go, Claude, otro compatible con OpenAI y búsqueda web). Lo que guardes ahí se escribe en `.env.local` y se aplica sin reiniciar. Las claves nunca vuelven al navegador: solo se ve si están puestas y sus últimos 4 caracteres. Por seguridad, los ajustes solo se pueden ver y cambiar abriendo la app en el mismo PC (`http://localhost:3000`); desde el móvil u otro aparato de la red salen en solo lectura, y una web cualquiera abierta en tu navegador no puede leerlos ni cambiarlos. En un servidor público, desactívalos con `SETTINGS_UI=off` y usa variables de entorno.
+
+**A mano**: copia `.env.example` como `.env.local`; tiene todas las variables comentadas.
 
 Lo mínimo para usarlo todo: **una clave de Google Maps** y **una clave de algún modelo** para el chat.
 
@@ -47,7 +52,7 @@ Lo mínimo para usarlo todo: **una clave de Google Maps** y **una clave de algú
 
 ### Modelos para el chat
 
-Pon una o varias claves; en el chat aparece un selector con los modelos disponibles y puedes cambiar a mitad de conversación (si cambias de proveedor, el modelo nuevo recibe la conversación en texto).
+Pon una o varias claves; en el chat aparece un selector con los modelos disponibles y puedes cambiar a mitad de conversación (si cambias de proveedor, el modelo nuevo recibe la conversación en texto). En **Ajustes**, «Ver modelos de tu cuenta» pide al proveedor la lista de modelos que te da tu clave o suscripción y marcas cuáles quieres en el selector; también puedes añadir uno escribiendo su nombre exacto.
 
 | Variable | Proveedor | Notas |
 |---|---|---|
@@ -59,13 +64,11 @@ Pon una o varias claves; en el chat aparece un selector con los modelos disponib
 
 ### Búsqueda web
 
-La usa el chatbot para transporte público, negocios pequeños, noticias y eventos. Claude trae la suya (puede que tengas que activarla para tu organización en la consola de Anthropic). Los demás modelos usan un [SearXNG](https://docs.searxng.org/) propio, un metabuscador que corre en tu PC con Docker y no necesita claves:
+La usa el chatbot para transporte público, negocios pequeños, noticias y eventos. Claude trae la suya (puede que tengas que activarla para tu organización en la consola de Anthropic). Los demás modelos usan un [SearXNG](https://docs.searxng.org/) propio, un metabuscador que corre en tu PC con Docker y no necesita claves.
 
-```bash
-docker compose up -d          # arranca SearXNG en http://localhost:8888 (docker-compose.yml + searxng/settings.yml)
-```
+**Arranca solo**: al iniciar la app, y también si una búsqueda lo encuentra apagado, la app ejecuta `docker compose up -d searxng` con el `docker-compose.yml` del repo (SearXNG en http://localhost:8888, la URL por defecto). La primera vez Docker descarga la imagen y tarda unos minutos. Solo necesitas Docker instalado y abierto (Docker Desktop en Windows y Mac). En **Ajustes → Búsqueda web** ves si está funcionando, por qué no arranca (Docker no instalado, Docker cerrado, puerto ocupado…) y tienes un botón «Arrancar». Si prefieres arrancarlo tú, `docker compose up -d` hace lo mismo y `SEARXNG_AUTOSTART=false` desactiva el arranque automático.
 
-y en `.env.local`: `SEARXNG_URL=http://localhost:8888`. La configuración del repo ya activa el formato JSON, que es el que consulta la app. Con SearXNG el tutor tiene dos herramientas: `web_search` (resultados con fragmento) y `read_web_page`, que lee el texto de una página de esos resultados (solo páginas públicas que salieron en la búsqueda del mismo turno). Sin `SEARXNG_URL`, el selector marca esos modelos como «sin búsqueda web» y el tutor avisa cuando le haría falta buscar. `WEB_SEARCH_ENABLED=false` la apaga para todos.
+La configuración del repo (`searxng/settings.yml`) ya activa el formato JSON, que es el que consulta la app. Con SearXNG el tutor tiene dos herramientas: `web_search` (resultados con fragmento) y `read_web_page`, que lee el texto de una página de esos resultados (solo páginas públicas que salieron en la búsqueda del mismo turno). `SEARXNG_URL` apunta a otro SearXNG si ya tienes uno (si no está en este PC, la app no intenta arrancarlo), y `WEB_SEARCH_ENABLED=false` apaga la búsqueda web para todos los modelos.
 
 ## Cómo probarlo
 
@@ -99,7 +102,7 @@ El modelo nunca toca la interfaz. Llama a herramientas con entradas validadas (Z
 
 | Carpeta | Contenido |
 |---|---|
-| `src/app` | Página y rutas de API (`/api/chat`, `/api/places/*`, `/api/geocode/reverse`) |
+| `src/app` | Página y rutas de API (`/api/chat`, `/api/places/*`, `/api/geocode/reverse`, `/api/settings/*`) |
 | `src/components` | Mapa, chat, buscador, capas, panel de selección, aprendizaje y quizzes |
 | `src/lib/map` | Tipos de `MapAction`, estado del mapa y `MapContext` que recibe el agente |
 | `src/lib/learning` | Programa (niveles I–IX y glosario), lecciones, quizzes y progreso |
@@ -107,6 +110,8 @@ El modelo nunca toca la interfaz. Llama a herramientas con entradas validadas (Z
 | `src/server/tools` | Las herramientas del agente (`search_places`, `calculate_route`, `search_transit_information`, `highlight_road`, `create_quiz`…) |
 | `src/server/agent` | Bucle del agente (Claude y compatibles con OpenAI) y prompt del tutor |
 | `src/server/llm` | Catálogo de proveedores y modelos según las claves configuradas |
+| `src/server/settings` | Pantalla de Ajustes: quién puede usarla, validación, escritura de `.env.local` y lista de modelos de cada proveedor |
+| `src/server/searxng` + `src/instrumentation.ts` | Arranque automático de SearXNG con Docker al iniciar el servidor |
 
 Los proveedores están detrás de interfaces (`src/server/providers/types.ts`), así que cambiar de proveedor de mapas o de búsqueda no toca la interfaz ni las herramientas.
 
@@ -119,8 +124,9 @@ Los proveedores están detrás de interfaces (`src/server/providers/types.ts`), 
 - **Datos de transporte público**: Google tiene poca cobertura de autobuses y carritos por puesto en Venezuela. Cuando no hay datos, el agente reconstruye la ruta desde fuentes web, la marca como `WEB_DATA` y solo dibuja las paradas que Google pudo ubicar; las demás se listan como no verificadas.
 - **Resaltar una avenida** traza la vía con Routes API entre dos extremos que propone el tutor; es una aproximación al trazado real y se indica como tal. Los **sectores** se muestran con el rectángulo que devuelve Geocoding, no con su contorno exacto.
 - El progreso vive en el navegador: si cambias de dispositivo, empieza de cero. Una base de datos con cuenta de usuario sería el siguiente paso.
-- Google Maps está probado con una Maps Demo Key real (mapa, buscador, clic en el mapa, capas), y SearXNG arrancado con el `docker-compose.yml` del repo. Los modelos no se han probado con claves reales (el entorno donde se construyó no llega a opencode.ai): los tests usan modelos simulados y un servidor falso compatible con OpenAI.
+- Google Maps está probado con una Maps Demo Key real (mapa, buscador, clic en el mapa, capas), y SearXNG arrancando solo con el `docker-compose.yml` del repo. Los modelos no se han probado con claves reales (el entorno donde se construyó no llega a opencode.ai): los tests usan modelos simulados y un servidor falso compatible con OpenAI.
 - Los modelos de OpenCode Go que usan `/messages` o `/responses` (MiniMax, Qwen, Grok, GPT) no están soportados todavía.
+- Los ajustes desde la app están pensados para usarla en tu propio PC. Bloquean a otros aparatos por la cabecera `Host` y la IP que ve Next, pero alguien en tu misma red que falsee esas cabeceras a propósito podría cambiarlos; si abres la app a otros, usa `SETTINGS_UI=off`.
 
 ## Sobre ROSE
 
