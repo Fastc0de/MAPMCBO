@@ -52,7 +52,7 @@ export async function POST(request: Request) {
   const config = getConfig();
   const resolved = resolveModel(body.model);
   if (!resolved) {
-    return Response.json({ error: "No hay ningún modelo configurado para el chat. Mira el README para añadir una clave." }, { status: 503 });
+    return Response.json({ error: "No hay ningún modelo configurado para el chat. Añade una clave en «Ajustes»." }, { status: 503 });
   }
   let providers;
   try {
@@ -128,7 +128,7 @@ export async function POST(request: Request) {
 
 function describeError(e: unknown, resolved: ResolvedModel): string {
   const who = resolved.provider.label;
-  if (e instanceof Anthropic.AuthenticationError) return "La clave de Anthropic no es válida (ANTHROPIC_API_KEY).";
+  if (e instanceof Anthropic.AuthenticationError) return "La clave de Claude no es válida. Cámbiala en «Ajustes».";
   if (e instanceof Anthropic.RateLimitError) return "Demasiadas peticiones al modelo. Espera un momento y vuelve a intentarlo.";
   if (e instanceof Anthropic.BadRequestError) return `El modelo rechazó la petición: ${e.message}`;
   if (e instanceof Anthropic.APIError) return `Error del modelo (${e.status ?? "sin estado"}): ${e.message}`;

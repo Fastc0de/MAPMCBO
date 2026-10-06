@@ -2,11 +2,12 @@ import "server-only";
 
 import type { MissingConfig } from "@/lib/setup";
 import { availableModels } from "./llm/catalog";
+import { searxngUrl } from "./searxng/manager";
 
 /**
- * Configuración del servidor. Las claves solo se leen de variables de entorno
- * (`.env.local` en desarrollo); nunca se envían al navegador salvo la clave
- * pública del mapa, que debe estar restringida por dominio en Google Cloud.
+ * Configuración del servidor. Las claves se leen de variables de entorno en cada petición
+ * (`.env.local`, que también se edita desde «Ajustes» en la app); nunca se envían al
+ * navegador salvo la clave pública del mapa, que debe estar restringida por dominio en Google Cloud.
  */
 export interface ServerConfig {
   googleServerKey?: string;
@@ -32,17 +33,15 @@ export function getConfig(): ServerConfig {
     chatConfigured: availableModels().length > 0,
     anthropicEffort: effort && EFFORTS.includes(effort) ? effort : "medium",
     webSearchMaxUses: Number(process.env.WEB_SEARCH_MAX_USES) || 5,
-    searxngUrl: process.env.WEB_SEARCH_ENABLED === "false" ? undefined : process.env.SEARXNG_URL || undefined,
+    searxngUrl: searxngUrl(),
   };
 }
 
 /** Lo que falta configurar, en palabras para la interfaz. */
 export function missingConfig(config = getConfig()): MissingConfig[] {
   const missing: MissingConfig[] = [];
-  if (!config.googleBrowserKey) missing.push({ part: "map", text: "GOOGLE_MAPS_API_KEY (mapa en el navegador)" });
-  if (!config.googleServerKey) missing.push({ part: "google", text: "GOOGLE_MAPS_API_KEY (Places, Geocoding y Routes)" });
-  if (!config.chatConfigured) {
-    missing.push({ part: "chat", text: "una clave de modelo para el chat (GEMINI_API_KEY, OPENCODE_GO_API_KEY, ANTHROPIC_API_KEY u OPENAI_COMPATIBLE_*)" });
-  }
+  if (!config.googleBrowserKey) missing.push({ part: "map", text: "la clave de Google Maps (mapa)" });
+  if (!config.googleServerKey) missing.push({ part: "google", text: "la clave de Google Maps (lugares, direcciones y rutas)" });
+  if (!config.chatConfigured) missing.push({ part: "chat", text: "una clave de modelo para el chat (Gemini, OpenCode Go, Claude u otro)" });
   return missing;
 }

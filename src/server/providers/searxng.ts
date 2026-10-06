@@ -1,6 +1,10 @@
 import "server-only";
 
+import type { SearxngStatus } from "@/lib/settings";
 import { ProviderError, type WebSearchProvider } from "./types";
+
+/** SearXNG no contesta (apagado o URL mala), a diferencia de un error de los buscadores. */
+export class SearxngUnreachableError extends ProviderError {}
 
 /**
  * Búsqueda web con un SearXNG propio (GET /search?format=json). El formato JSON tiene que
@@ -16,7 +20,11 @@ export function createSearxngSearch(baseUrl: string, fetchImpl: typeof fetch = f
       try {
         res = await fetchImpl(`${base}/search?${qs}`, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(20_000) });
       } catch {
-        throw new ProviderError(`No se pudo conectar con SearXNG en ${base}. ¿Está arrancado (docker compose up -d)?`, undefined, "SearXNG");
+        throw new SearxngUnreachableError(
+          `No se pudo conectar con SearXNG en ${base}. Arráncalo desde «Ajustes» o con «docker compose up -d».`,
+          undefined,
+          "SearXNG",
+        );
       }
       if (res.status === 403) {
         throw new ProviderError("SearXNG no tiene activado el formato JSON (search.formats en settings.yml).", 403, "SearXNG");
@@ -40,6 +48,25 @@ export function createSearxngSearch(baseUrl: string, fetchImpl: typeof fetch = f
         if (results.length >= Math.min(10, Math.max(1, opts?.maxResults ?? 6))) break;
       }
       return results;
+    },
+  };
+}
+
+/**
+ * Si SearXNG no contesta, intenta arrancarlo (Docker) y repite la búsqueda una vez.
+ * `ensure` devuelve el estado tras esperar a que arranque.
+ */
+export function withAutostart(search: WebSearchProvider, ensure: () => Promise<SearxngStatus>): WebSearchProvider {
+  return {
+    async search(query, opts) {
+      try {
+        return await search.search(query, opts);
+      } catch (e) {
+        if (!(e instanceof SearxngUnreachableError)) throw e;
+        const status = await ensure();
+        if (status.state !== "running") throw new ProviderError(`Búsqueda web no disponible: ${status.message}`, undefined, "SearXNG");
+        return search.search(query, opts);
+      }
     },
   };
 }

@@ -1,6 +1,8 @@
 import "server-only";
 
 import type { HistoryFormat, ModelOption } from "@/lib/chat/models";
+import { SETTINGS_FIELDS, splitModels } from "@/lib/settings";
+import { searxngUrl } from "@/server/searxng/manager";
 
 /**
  * Proveedores de modelos para el chat. Cada uno se activa con su clave en el entorno;
@@ -8,7 +10,9 @@ import type { HistoryFormat, ModelOption } from "@/lib/chat/models";
  *
  * - Claude (Anthropic): API de Messages con búsqueda web de servidor.
  * - OpenCode Go, Gemini y uno personalizado: APIs compatibles con OpenAI (chat/completions).
- *   Para buscar en la web usan un SearXNG propio si hay SEARXNG_URL.
+ *   Para buscar en la web usan un SearXNG propio (por defecto en http://localhost:8888).
+ *
+ * Las claves y listas de modelos se ponen en `.env.local` o desde «Ajustes» en la app.
  */
 
 export interface LlmProvider {
@@ -35,12 +39,15 @@ type Env = Record<string, string | undefined>;
 
 export const USER_AGENT = "mapa-maracaibo/0.2";
 
-const list = (value: string | undefined, fallback: string[]) => {
-  const items = (value ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return items.length > 0 ? items : fallback;
+export const PROVIDER_BASE_URLS = {
+  gemini: "https://generativelanguage.googleapis.com/v1beta/openai",
+  "opencode-go": "https://opencode.ai/zen/go/v1",
+} as const;
+
+/** Modelos de la variable, o los de por defecto (los mismos que muestra la pantalla de Ajustes). */
+const list = (env: Env, name: string) => {
+  const items = splitModels(env[name]);
+  return items.length > 0 ? items : splitModels(SETTINGS_FIELDS.find((f) => f.env === name)?.defaultValue);
 };
 
 const CLAUDE_LABELS: Record<string, string> = {
@@ -52,7 +59,7 @@ export function configuredProviders(env: Env = process.env): LlmProvider[] {
   const providers: LlmProvider[] = [];
 
   if (env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN) {
-    const models = list(env.ANTHROPIC_MODELS, ["claude-opus-5-5", "claude-sonnet-5-5"]);
+    const models = list(env, "ANTHROPIC_MODELS");
     // ANTHROPIC_MODEL (de la primera versión) sigue funcionando: va primero.
     if (env.ANTHROPIC_MODEL && !models.includes(env.ANTHROPIC_MODEL)) models.unshift(env.ANTHROPIC_MODEL);
     providers.push({
@@ -69,8 +76,8 @@ export function configuredProviders(env: Env = process.env): LlmProvider[] {
       label: "Gemini",
       format: "openai",
       apiKey: env.GEMINI_API_KEY,
-      baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
-      models: list(env.GEMINI_MODELS, ["gemini-3.8-flash"]).map((m) => ({ id: m, label: m })),
+      baseUrl: PROVIDER_BASE_URLS.gemini,
+      models: list(env, "GEMINI_MODELS").map((m) => ({ id: m, label: m })),
     });
   }
 
@@ -80,15 +87,15 @@ export function configuredProviders(env: Env = process.env): LlmProvider[] {
       label: "OpenCode Go",
       format: "openai",
       apiKey: env.OPENCODE_GO_API_KEY,
-      baseUrl: "https://opencode.ai/zen/go/v1",
+      baseUrl: PROVIDER_BASE_URLS["opencode-go"],
       sessionHeader: "x-opencode-session",
       // Solo modelos servidos por /chat/completions (los de /messages o /responses no se admiten aquí).
-      models: list(env.OPENCODE_GO_MODELS, ["kimi-k3", "glm-5.3", "deepseek-v4-pro"]).map((m) => ({ id: m, label: m })),
+      models: list(env, "OPENCODE_GO_MODELS").map((m) => ({ id: m, label: m })),
     });
   }
 
   if (env.OPENAI_COMPATIBLE_BASE_URL) {
-    const models = list(env.OPENAI_COMPATIBLE_MODELS, []);
+    const models = list(env, "OPENAI_COMPATIBLE_MODELS");
     if (models.length > 0) {
       providers.push({
         id: "custom",
@@ -107,7 +114,7 @@ export function configuredProviders(env: Env = process.env): LlmProvider[] {
 /** ¿Hay búsqueda web para este formato? Claude usa la suya; los demás, SearXNG. */
 export function webSearchAvailable(format: HistoryFormat, env: Env = process.env): boolean {
   if (env.WEB_SEARCH_ENABLED === "false") return false;
-  return format === "anthropic" || Boolean(env.SEARXNG_URL);
+  return format === "anthropic" || Boolean(searxngUrl(env));
 }
 
 export function availableModels(env: Env = process.env): ModelOption[] {

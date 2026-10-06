@@ -11,7 +11,7 @@ import {
 } from "@/server/agent/openai";
 import { availableModels, resolveModel } from "@/server/llm/catalog";
 import { createPageReader, htmlToText, isPublicHttpUrl } from "@/server/providers/pages";
-import { createSearxngSearch } from "@/server/providers/searxng";
+import { createSearxngSearch, SearxngUnreachableError } from "@/server/providers/searxng";
 import { TOOL_BY_NAME } from "@/server/tools/registry";
 import { fakeProviders, mapContextAtMaracaibo } from "./fakes";
 
@@ -38,12 +38,11 @@ describe("catálogo de modelos", () => {
     ]);
   });
 
-  it("LLM_DEFAULT_MODEL va primero y la búsqueda web depende del proveedor", () => {
+  it("LLM_DEFAULT_MODEL va primero y la búsqueda web (SearXNG local por defecto) se puede apagar", () => {
     const env = { GEMINI_API_KEY: "g", ANTHROPIC_API_KEY: "a", LLM_DEFAULT_MODEL: "gemini:gemini-3.8-flash" };
     const models = availableModels(env);
-    expect(models[0]).toMatchObject({ id: "gemini:gemini-3.8-flash", format: "openai", webSearch: false });
+    expect(models[0]).toMatchObject({ id: "gemini:gemini-3.8-flash", format: "openai", webSearch: true });
     expect(models.find((m) => m.id.startsWith("anthropic"))?.webSearch).toBe(true);
-    expect(availableModels({ ...env, SEARXNG_URL: "http://localhost:8888" })[0].webSearch).toBe(true);
     expect(availableModels({ ...env, WEB_SEARCH_ENABLED: "false" }).some((m) => m.webSearch)).toBe(false);
   });
 
@@ -257,7 +256,7 @@ describe("SearXNG", () => {
     const down = (async () => {
       throw new TypeError("fetch failed");
     }) as unknown as typeof fetch;
-    await expect(createSearxngSearch("http://s", down).search("x")).rejects.toThrow(/docker compose up/);
+    await expect(createSearxngSearch("http://s", down).search("x")).rejects.toThrow(SearxngUnreachableError);
     const enginesDown = (async () => Response.json({ results: [], unresponsive_engines: [["duckduckgo", "access denied"]] })) as unknown as typeof fetch;
     await expect(createSearxngSearch("http://s", enginesDown).search("x")).rejects.toThrow(/duckduckgo \(access denied\)/);
   });

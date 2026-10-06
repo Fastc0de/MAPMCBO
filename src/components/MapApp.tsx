@@ -1,6 +1,7 @@
 "use client";
 
 import { APIProvider } from "@vis.gl/react-google-maps";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { ChatPanel, type ChatMessage } from "@/components/chat/ChatPanel";
 import { LearningPanel, type LearningTab } from "@/components/learning/LearningPanel";
@@ -10,6 +11,7 @@ import { useIsDesktop } from "@/components/useIsDesktop";
 import { LayerPanel } from "@/components/panels/LayerPanel";
 import { SearchBar } from "@/components/panels/SearchBar";
 import { SelectionPanel } from "@/components/panels/SelectionPanel";
+import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { transcriptHistory, type HistoryFormat, type ModelOption } from "@/lib/chat/models";
 import { readEventStream } from "@/lib/chat/stream";
 import { CITIES, DEFAULT_CITY, VENEZUELA } from "@/lib/cities";
@@ -89,7 +91,10 @@ export function MapApp({ browserKey, mapId, missing, models }: Props) {
   const [revealMarker, setRevealMarker] = useState<{ position: LatLng; title: string } | null>(null);
   const [sideTab, setSideTab] = useState<"aprender" | "capas">("aprender");
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>(null);
+  /** Ajustes abiertos (y en qué sección), o cerrados. */
+  const [settings, setSettings] = useState<{ section?: string } | null>(null);
   const isDesktop = useIsDesktop();
+  const router = useRouter();
 
   const serverMapsReady = !missing.some((m) => m.part === "google");
   const chatMissing = missing.filter((m) => m.part !== "map");
@@ -124,6 +129,13 @@ export function MapApp({ browserKey, mapId, missing, models }: Props) {
   const selectModel = (id: string) => {
     setModelId(id);
     saveJSON(MODEL_KEY, id);
+  };
+
+  const onSettingsSaved = (changed: string[]) => {
+    // La clave del mapa se carga una sola vez en la página: hay que recargarla.
+    if (changed.some((k) => k.startsWith("GOOGLE_MAPS_"))) window.location.reload();
+    // El resto (modelos, búsqueda web) llega al volver a pedir la página al servidor.
+    else router.refresh();
   };
 
   /* ---------- Acciones que llegan del agente ---------- */
@@ -470,6 +482,8 @@ export function MapApp({ browserKey, mapId, missing, models }: Props) {
       models={models}
       modelId={selectedModel?.id}
       onSelectModel={selectModel}
+      // Abre Ajustes en el proveedor del modelo elegido (los ids de sección coinciden con los de proveedor).
+      onOpenSettings={() => setSettings({ section: selectedModel ? selectedModel.id.slice(0, selectedModel.id.indexOf(":")) : "gemini" })}
     />
   );
 
@@ -501,14 +515,31 @@ export function MapApp({ browserKey, mapId, missing, models }: Props) {
           <button onClick={() => dispatch({ type: "FIT_BOUNDS", bounds: VENEZUELA.bounds })} className="rounded-md border border-border px-2 py-1 text-xs">
             Venezuela
           </button>
+          <button
+            onClick={() => setSettings({})}
+            aria-label="Ajustes"
+            title="Claves, modelos y búsqueda web"
+            className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs"
+          >
+            <GearIcon />
+            <span className="hidden sm:inline">Ajustes</span>
+          </button>
         </div>
       </header>
 
       {missing.length > 0 && (
-        <div className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
-          Falta configuración en el servidor: {missing.map((m) => m.text).join(" · ")}. Mira el README para saber dónde ponerla.
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-amber-300 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+          <span>Falta configurar: {missingSummary(missing)}.</span>
+          <button
+            onClick={() => setSettings({ section: missing.some((m) => m.part !== "chat") ? "google" : "gemini" })}
+            className="rounded-md border border-amber-400 px-2 py-0.5 font-semibold hover:bg-amber-100 dark:hover:bg-amber-900"
+          >
+            Abrir Ajustes
+          </button>
         </div>
       )}
+
+      {settings && <SettingsDialog initialSection={settings.section} onClose={() => setSettings(null)} onSaved={onSettingsSaved} />}
 
       <div className="relative flex min-h-0 flex-1">
         {isDesktop && (
@@ -545,10 +576,16 @@ export function MapApp({ browserKey, mapId, missing, models }: Props) {
             </APIProvider>
           ) : (
             <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted">
-              <p>
-                El mapa necesita la variable <code>GOOGLE_MAPS_BROWSER_API_KEY</code>.<br />
-                Mientras tanto puedes ver el programa de aprendizaje y el glosario.
-              </p>
+              <div className="space-y-3">
+                <p>
+                  El mapa necesita una clave de Google Maps.
+                  <br />
+                  Mientras tanto puedes ver el programa de aprendizaje y el glosario.
+                </p>
+                <button onClick={() => setSettings({ section: "google" })} className="rounded-lg bg-accent px-3 py-1.5 font-medium text-white">
+                  Poner la clave
+                </button>
+              </div>
             </div>
           )}
 
@@ -616,5 +653,25 @@ export function MapApp({ browserKey, mapId, missing, models }: Props) {
         {isDesktop && <aside className="w-[400px] shrink-0 border-l border-border bg-panel">{chat}</aside>}
       </div>
     </div>
+  );
+}
+
+/** «la clave de Google Maps, un modelo para el chat»: lo que falta, sin repetir la clave de Google. */
+function missingSummary(missing: MissingConfig[]): string {
+  const parts: string[] = [];
+  if (missing.some((m) => m.part === "map" || m.part === "google")) parts.push("la clave de Google Maps");
+  if (missing.some((m) => m.part === "chat")) parts.push("un modelo para el chat (Gemini, OpenCode Go, Claude u otro)");
+  return parts.join(" y ");
+}
+
+function GearIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" className="h-3.5 w-3.5">
+      <path
+        fillRule="evenodd"
+        d="M8.34 1.804A1 1 0 0 1 9.32 1h1.36a1 1 0 0 1 .98.804l.295 1.473c.497.144.971.342 1.416.587l1.25-.834a1 1 0 0 1 1.262.125l.962.962a1 1 0 0 1 .125 1.262l-.834 1.25c.245.445.443.919.587 1.416l1.473.295a1 1 0 0 1 .804.98v1.36a1 1 0 0 1-.804.98l-1.473.295a6.95 6.95 0 0 1-.587 1.416l.834 1.25a1 1 0 0 1-.125 1.262l-.962.962a1 1 0 0 1-1.262.125l-1.25-.834a6.953 6.953 0 0 1-1.416.587l-.295 1.473a1 1 0 0 1-.98.804H9.32a1 1 0 0 1-.98-.804l-.295-1.473a6.957 6.957 0 0 1-1.416-.587l-1.25.834a1 1 0 0 1-1.262-.125l-.962-.962a1 1 0 0 1-.125-1.262l.834-1.25a6.957 6.957 0 0 1-.587-1.416l-1.473-.295A1 1 0 0 1 1 10.68V9.32a1 1 0 0 1 .804-.98l1.473-.295c.144-.497.342-.971.587-1.416l-.834-1.25a1 1 0 0 1 .125-1.262l.962-.962A1 1 0 0 1 5.38 3.03l1.25.834a6.957 6.957 0 0 1 1.416-.587l.294-1.473ZM13 10a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+        clipRule="evenodd"
+      />
+    </svg>
   );
 }
