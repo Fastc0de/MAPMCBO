@@ -1,0 +1,9 @@
+{
+  "extraKnownMarketplaces": {
+    "mapmcbo-plugins": { "source": { "source": "github", "repo": "Fastc0de/MAPMCBO" } }
+  },
+  "enabledPlugins": {
+    "project-memory@mapmcbo-plugins": true,
+    "project-orchestrator@mapmcbo-plugins": true
+  }
+}
