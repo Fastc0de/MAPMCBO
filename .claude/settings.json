@@ -5,5 +5,18 @@
   "enabledPlugins": {
     "project-memory@mapmcbo-plugins": true,
     "project-orchestrator@mapmcbo-plugins": true
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "claude plugin marketplace add Fastc0de/MAPMCBO >/dev/null 2>&1; claude plugin install project-memory@mapmcbo-plugins >/dev/null 2>&1; claude plugin install project-orchestrator@mapmcbo-plugins >/dev/null 2>&1; exit 0",
+            "timeout": 240
+          }
+        ]
+      }
+    ]
   }
 }
